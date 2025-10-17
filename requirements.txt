@@ -1,7 +1,7 @@
 # --- Core app dependencies ---
 streamlit==1.28.0
 ultralytics==8.1.20
-opencv-python-headless==4.12.0.88
+opencv-python-headless==4.10.0.84
 Pillow==10.0.0
 matplotlib==3.7.1
 numpy==1.26.2
