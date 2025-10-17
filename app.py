@@ -123,4 +123,4 @@ elif st.session_state.process_step  == "inprogress":
 elif st.session_state.process_step  == "end" and len(st.session_state.detected_cards) ==0:
     st.warning("Analyse terminée - Aucun objet détecté")
 elif st.session_state.process_step  == "end":
-    st.sucess("Analyse terminée")
+    st.success("Analyse terminée")
