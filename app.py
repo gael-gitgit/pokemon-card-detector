@@ -76,7 +76,7 @@ if image_bytes is not None:
 if uploaded_file or camera_img:
     with st.spinner("Détection des cartes en cours..."):
         # Convertir PIL → array pour YOLO
-        image = np.array(image, dtype=np.uint8) 
+        #image = np.array(image, dtype=np.uint8) 
         results = yolo_model.predict(source=image, conf=0.8, device="cpu")
         
     # -----------------------------
