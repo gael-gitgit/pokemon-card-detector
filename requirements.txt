@@ -7,7 +7,7 @@ matplotlib
 numpy
 requests
 
-# --- Machine Learning & Vector Search ---
+# --- Machine Learning & Vector Search  ---
 torch
 torchvision
 faiss-cpu
