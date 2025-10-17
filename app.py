@@ -7,7 +7,6 @@ import pickle
 import time
 import requests
 import functions
-from io import BytesIO
 
 # -----------------------------
 # CONFIGURATION DE LA PAGE
@@ -28,7 +27,7 @@ st.markdown("Télécharge une image pour détecter et identifier les cartes grâ
 def load_all_models():
     collection, meta = functions.load_faiss_index()
     emb_model, preprocess, device = functions.load_embbedings_model()
-    yolo_model = YOLO("models/my-modelv6.pt")
+    yolo_model = YOLO("models/my-modelv4.pt")
     return collection, meta, emb_model, preprocess, device, yolo_model
 
 with st.spinner("Chargement des modèles..."):
@@ -38,47 +37,27 @@ with st.spinner("Chargement des modèles..."):
 # -----------------------------
 # UPLOAD D'IMAGE
 # -----------------------------
-col1, col2 = st.columns([1, 2])
-with col1:
-    uploaded_file = None #st.file_uploader("Téléverser une image", type=['png', 'jpg', 'jpeg'])
-    camera_img = st.camera_input("Ou prendre une photo avec la webcam")
+uploaded_file = st.file_uploader("📤 Upload une image", type=["jpg", "jpeg", "png"])
 
-    # déterminer la source d'image : priorité caméra si présente
-    image_bytes = None
-if camera_img is not None:
-    image_bytes = camera_img.getvalue()
-elif uploaded_file is not None:
-    image_bytes = uploaded_file.read()
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
+    
+else:
+    st.info("Aucune image uploadée. Une image aléatoire sera utilisée pour la démo.")
+    image = Image.open(requests.get("https://picsum.photos/600/400", stream=True).raw).convert("RGB")
 
-
-def pil_to_cv2(pil_image: Image.Image) -> np.ndarray:
-    arr = np.array(pil_image.convert('RGB'))
-    return arr
-
-
-
-
-if image_bytes is not None:
-# on lance immédiatement l'analyse
-    try:
-        pil_img = Image.open(BytesIO(image_bytes)).convert('RGB')
-    except Exception as e:
-        st.error(f"Impossible d'ouvrir l'image : {e}")
-        st.stop()
-
-
-    image = pil_to_cv2(pil_img)
-    st.image(image, caption="Image d'entrée", width='stretch')
+st.image(image, caption="Image d'entrée", width='stretch')
 
 # -----------------------------
 # DÉTECTION YOLO
 # -----------------------------
-if uploaded_file or camera_img:
+if uploaded_file:
     with st.spinner("Détection des cartes en cours..."):
         # Convertir PIL → array pour YOLO
-        #image = np.array(image, dtype=np.uint8) 
+        image = np.array(image)
         results = yolo_model.predict(source=image, conf=0.8, device="cpu")
         
+
     # -----------------------------
     # TRAITEMENT DES RÉSULTATS
     # -----------------------------
