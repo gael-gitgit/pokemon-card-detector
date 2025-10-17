@@ -11,3 +11,4 @@ requests
 torch
 torchvision
 faiss-cpu
+open-clip-torch
