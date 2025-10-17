@@ -42,18 +42,21 @@ st.session_state.process_step = "start"
 image = None
 if img_file_buffer:
     image = Image.open(img_file_buffer).convert("RGB")
+
 #elif uploaded_file:
     #image = Image.open(uploaded_file).convert("RGB")
 
 # Session state pour collection
 if "detected_cards" not in st.session_state:
     st.session_state.detected_cards = []
+    
 
 # Container pour affichage progressif
 collection_container = st.container()
 
 # --- Traitement de l'image ---
 if image is not None:
+    st.session_state.detected_cards = []
     st.session_state.process_step = "inprogress"  
     img = np.array(image, dtype=np.uint8)
     #img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) => fonctionne moins bien si je le laisse, vérifications à faire sur les types
