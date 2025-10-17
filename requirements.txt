@@ -1,15 +1,15 @@
 # --- Core app dependencies ---
-streamlit==1.28.0
-ultralytics==8.1.20
-opencv-python-headless==4.10.0.84
-Pillow==10.0.0
-matplotlib==3.7.1
-numpy==1.26.2
-requests==2.31.0
+streamlit
+ultralytics
+opencv-python-headless
+Pillow
+matplotlib
+numpy
+requests
 
 # --- Machine Learning & Vector Search ---
-torch==2.2.0
-torchvision==0.15.2
-faiss-cpu==1.7.4
-open-clip-torch==2.0.2
-transformers==4.31.0
+torch
+torchvision
+faiss-cpu
+open-clip-torch
+transformers
