@@ -91,7 +91,6 @@ if image is not None:
                         collection, crop, embedding_model, preprocess, device
                     )
 
-                    print(distances)
 
                     #get metadata
                     search_results = []
@@ -135,10 +134,10 @@ if image is not None:
                         #col1, col2= st.columns(2)
                         col1.image(crop, caption="Crop", width="stretch")
                         col2.image(search_results[0]['img'], caption=str(search_results[0]['price_eur']) + " EUR", width="stretch")
-                        #col3.image(search_results[1]['img'], caption=str(search_results[1]['price_eur']) + " EUR", width="stretch")
-                        #col4.image(search_results[2]['img'], caption=str(search_results[2]['price_eur']) + " EUR", width="stretch")
-                        #col5.image(search_results[3]['img'], caption=str(search_results[3]['price_eur']) + " EUR", width="stretch")
-                        #col6.image(search_results[4]['img'], caption=str(search_results[4]['price_eur']) + " EUR", width="stretch")
+                        col3.image(search_results[1]['img'], caption=str(search_results[1]['price_eur']) + " EUR", width="stretch")
+                        col4.image(search_results[2]['img'], caption=str(search_results[2]['price_eur']) + " EUR", width="stretch")
+                        col5.image(search_results[3]['img'], caption=str(search_results[3]['price_eur']) + " EUR", width="stretch")
+                        col6.image(search_results[4]['img'], caption=str(search_results[4]['price_eur']) + " EUR", width="stretch")
                         #col7.image(search_results[5]['img'], caption=str(search_results[5]['price_eur']) + " EUR", width="stretch")
                         #col8.image(search_results[6]['img'], caption=str(search_results[6]['price_eur']) + " EUR", width="stretch")
                         st.markdown(f"""

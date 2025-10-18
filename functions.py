@@ -43,7 +43,7 @@ def improve_img(img):
     # --- Étape 2 : boost de saturation et luminosité (espace HSV) ---
     hsv = cv2.cvtColor(enhanced_lab, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    s = np.clip(s * 1, 0, 255).astype(np.uint8)
+    s = np.clip(s * 1.1, 0, 255).astype(np.uint8)
 
     if brightness < 115:
         v = np.clip(v * 1.1, 0, 255).astype(np.uint8)
@@ -162,7 +162,7 @@ def search_card_correspondance(collection, img, embbedings_model, processor, dev
     Recherche la correspondance dans un index FAISS à partir d'une image
     """
     query_emb = get_embedding(img, embbedings_model, processor, device)
-    distances, indices = collection.search(query_emb, k=20)
+    distances, indices = collection.search(query_emb, k=10)
 
     return distances[0], indices[0]
 
