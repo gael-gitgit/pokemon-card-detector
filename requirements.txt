@@ -6,6 +6,8 @@ Pillow
 matplotlib
 numpy
 requests
+scikit-image
+imagehash
 
 # --- Machine Learning & Vector Search ---
 torch
@@ -13,3 +15,4 @@ torchvision
 faiss-cpu
 open-clip-torch
 transformers
+

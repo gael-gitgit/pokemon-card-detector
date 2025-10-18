@@ -5,6 +5,9 @@ import cv2
 from ultralytics import YOLO
 import functions
 import time
+import requests
+import imagehash
+
 
 st.set_page_config(page_title="Trouve la Poké-pétite", layout="wide")
 
@@ -35,7 +38,7 @@ model, collection, meta, embedding_model, preprocess, device = load_models()
 
 # Inputs
 img_file_buffer = st.camera_input("📸 Prends une photo ou sélectionne-en une", key="camera_input")
-#uploaded_file = st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
 
 st.session_state.process_step = "start"
 
@@ -43,8 +46,8 @@ image = None
 if img_file_buffer:
     image = Image.open(img_file_buffer).convert("RGB")
 
-#elif uploaded_file:
-    #image = Image.open(uploaded_file).convert("RGB")
+elif uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
 
 # Session state pour collection
 if "detected_cards" not in st.session_state:
@@ -61,7 +64,8 @@ if image is not None:
     img = np.array(image, dtype=np.uint8)
     #img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) => fonctionne moins bien si je le laisse, vérifications à faire sur les types
     results = model.predict(source=img, conf=0.8, device='cpu')
-
+    session = requests.Session()
+    #img = cv2.fastNlMeansDenoisingColored(img, None, 7, 7, 7, 21)
     #Check si on a des 
     if 1 > 2 :
         st.warning("Aucun objet détecté.")
@@ -83,30 +87,60 @@ if image is not None:
                     crop = functions.preprocess_img(crop_pre)
                     crop = functions.improve_img(crop)
 
-                    search_results = functions.search_card_correspondance(
-                        collection, meta, crop, embedding_model, preprocess, device
+                    distances,indices = functions.search_card_correspondance(
+                        collection, crop, embedding_model, preprocess, device
                     )
+
+                    print(distances)
+
+                    #get metadata
+                    search_results = []
+                    for idx in indices:
+                        search_results.append(meta[idx])
+                    
+                    #download imates
+                    
+                    candidate_imgs = []
+                    for result in search_results:
+                        pil_img = functions.get_image_from_url(session,result['img'])
+                        candidate_imgs.append(np.array(pil_img, dtype=np.uint8))
+
+                    #rerank based on ssim
+                    reranked_indices = functions.rerank_hash(crop, candidate_imgs, indices, distances)
+
+                    search_results = []
+                    for idx in reranked_indices:
+                        search_results.append(meta[idx])
+
 
                     #img_reference = functions.get_image_from_url(search_results['img'])
 
+                    
                     # --- Ajouter carte à session_state ---
                     card_data = {
                         "crop": crop,
-                        "reference": search_results['img'],
-                        "name": search_results['name'],
-                        "price": search_results['price_eur'],
-                        "tcgplayer": search_results['tcgplayer_link'],
-                        "cardmarket": search_results['cardmarket_link'],
-                        "history": search_results['price_evolution_url']
+                        "reference": search_results[0]['img'],
+                        "name": search_results[0]['name'],
+                        "price": search_results[0]['price_eur'],
+                        "tcgplayer": search_results[0]['tcgplayer_link'],
+                        "cardmarket": search_results[0]['cardmarket_link'],
+                        "history": search_results[0]['price_evolution_url']
                     }
                     st.session_state.detected_cards.append(card_data)
 
                     # --- Affichage immédiat dans le container ---
                     with collection_container:
                         st.markdown(f"### {card_data['name']} — 💰 <span style='color:red;'>{card_data['price']} €</span>", unsafe_allow_html=True)
-                        col1, col2 = st.columns(2)
-                        col1.image(card_data['crop'], caption="Crop", width="stretch")
-                        col2.image(card_data['reference'], caption="Correspondance", width="stretch")
+                        col1, col2,col3,col4,col5,col6,col7,col8 = st.columns(8)
+                        #col1, col2= st.columns(2)
+                        col1.image(crop, caption="Crop", width="stretch")
+                        col2.image(search_results[0]['img'], caption=str(search_results[0]['price_eur']) + " EUR", width="stretch")
+                        #col3.image(search_results[1]['img'], caption=str(search_results[1]['price_eur']) + " EUR", width="stretch")
+                        #col4.image(search_results[2]['img'], caption=str(search_results[2]['price_eur']) + " EUR", width="stretch")
+                        #col5.image(search_results[3]['img'], caption=str(search_results[3]['price_eur']) + " EUR", width="stretch")
+                        #col6.image(search_results[4]['img'], caption=str(search_results[4]['price_eur']) + " EUR", width="stretch")
+                        #col7.image(search_results[5]['img'], caption=str(search_results[5]['price_eur']) + " EUR", width="stretch")
+                        #col8.image(search_results[6]['img'], caption=str(search_results[6]['price_eur']) + " EUR", width="stretch")
                         st.markdown(f"""
                         **Liens :** [TCGPlayer]({card_data['tcgplayer']}) | [CardMarket]({card_data['cardmarket']}) | [Historique prix]({card_data['history']})
                         """)
@@ -122,7 +156,7 @@ if st.session_state.detected_cards:
 if st.session_state.process_step  == "start":
     st.info("Analyse à lancer")
 elif st.session_state.process_step  == "inprogress":
-    st.info("Analyse en cours")
+    st.info("Amélioration de la qualité des images (oui c'est long...)")
 elif st.session_state.process_step  == "end" and len(st.session_state.detected_cards) ==0:
     st.warning("Analyse terminée - Aucun objet détecté")
 elif st.session_state.process_step  == "end":
