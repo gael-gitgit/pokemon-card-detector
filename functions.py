@@ -11,11 +11,11 @@ from transformers import AutoModel, AutoImageProcessor
 
 import faiss
 import json
+import time
 
 import imagehash
 
 import cv2
-from skimage.metrics import structural_similarity as ssim
 
 def get_image_from_url(session,url):
     response = session.get(url)
@@ -23,6 +23,8 @@ def get_image_from_url(session,url):
     img = Image.open(BytesIO(response.content)).convert("RGB")
 
     return img
+
+
 
 def improve_img(img):
 
@@ -56,8 +58,12 @@ def improve_img(img):
     enhanced_hsv = cv2.cvtColor(hsv_boosted, cv2.COLOR_HSV2BGR)
 
     # --- Étape 3 : débruitage et renforcement de la netteté ---
-    denoised = cv2.fastNlMeansDenoisingColored(enhanced_hsv, None, 7, 7, 7, 21)
-    sharp = cv2.addWeighted(denoised, 1.2, cv2.GaussianBlur(denoised, (0, 0), 2), -0.2, 0)
+    #denoised = cv2.fastNlMeansDenoisingColored(enhanced_hsv, None, 7, 7, 7, 21)
+    #sharp = cv2.addWeighted(denoised, 1.2, cv2.GaussianBlur(denoised, (0, 0), 2), -0.2, 0)
+
+    #Plus rapide mais un peu de perte
+    denoised = cv2.bilateralFilter(enhanced_hsv, d=5, sigmaColor=75, sigmaSpace=75)
+    sharp = cv2.addWeighted(denoised, 1.3, cv2.GaussianBlur(denoised, (0,0), 2), -0.3, 0)
 
     return sharp
 
@@ -97,20 +103,24 @@ def preprocess_img(img):
     rect[3] = pts[np.argmax(diff)]
 
     (w, h) = (460, 640)
+    #(w, h) = (230, 320)
     dst = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype="float32")
 
     M = cv2.getPerspectiveTransform(rect, dst)
     warp = cv2.warpPerspective(img, M, (w, h))
 
-    return warp
 
+    return warp
 
 
 def load_faiss_index():
     # Load your FAISS index
     collection = faiss.read_index("./faiss_db/pokemon-cards.index")
-    with open("./faiss_db/pokemon-cards_schema.json") as f:
+    #with open("./faiss_db/pokemon-cards_schema-with-hashes.json") as f:
+        #meta = json.load(f)
+    with open("./faiss_db/test-hash-plus-colorsig.json") as f:
         meta = json.load(f)
+
     
     return collection,meta
 
@@ -157,110 +167,58 @@ def get_embedding(img, model, processor, device):
     return emb
 
 
-def search_card_correspondance(collection, img, embbedings_model, processor, device):
+def search_card_correspondance(collection, img, embbedings_model, processor, device,k, filter_ids=[]):
     """
     Recherche la correspondance dans un index FAISS à partir d'une image
     """
+    
+    start = time.time()              
     query_emb = get_embedding(img, embbedings_model, processor, device)
-    distances, indices = collection.search(query_emb, k=10)
+    query_emb = np.vstack(query_emb).astype("float32")
+    print("getting emmbeddings :  ",(time.time() - start) * 1e3, "ms")
+    start = time.time() 
 
+    #recherche de la correspondance sur un subset
+    filter_ids = np.array(filter_ids, dtype=np.int64)
+    id_selector = faiss.IDSelectorArray(len(filter_ids), faiss.swig_ptr(filter_ids))
+    params = faiss.SearchParameters()
+    params.sel = id_selector
+
+    #recherche
+    distances, indices = collection.search(query_emb, k=k, params=params)
+    print("getting search results :  ",(time.time() - start) * 1e3, "ms")
     return distances[0], indices[0]
 
 
 
 
-def rerank_ssim(query_img, candidate_imgs, indices, distances):
-    query_gray = cv2.cvtColor(query_img, cv2.COLOR_RGB2GRAY)
-    scores = []
+def get_phash(img):
+    pil_img = Image.fromarray(img).convert("RGB")
+    hash = imagehash.phash(img,hash_size=30)
+    return hash
 
-    for cand, idx, dist in zip(candidate_imgs, indices, distances):
-        cand_gray = cv2.cvtColor(cand, cv2.COLOR_RGB2GRAY)
+def read_crop_hash(hash_as_str):
+    return imagehash.hex_to_hash(hash_as_str)
 
-        # 🔧 redimensionne pour que les tailles matchent
-        if cand_gray.shape != query_gray.shape:
-            cand_gray = cv2.resize(cand_gray, (query_gray.shape[1], query_gray.shape[0]))
-
-        s, _ = ssim(query_gray, cand_gray, full=True)
-        scores.append((idx, s))
-
-    # Trie par score SSIM décroissant
-    scores = sorted(scores, key=lambda x: x[1], reverse=True)
-    reranked_indices = [idx for idx, _ in scores]
-    return reranked_indices
+def store_hash(hash):
+    return str(hash)
 
 
-
-def rerank_orb(query_img, candidate_imgs, indices, distances, max_features=1000):
-    """
-    Rerank FAISS results using ORB feature matching.
-    
-    Args:
-        query_img: numpy array (RGB)
-        candidate_imgs: list of numpy arrays (RGB)
-        indices: indices des résultats FAISS
-        distances: distances FAISS associées
-        max_features: nombre max de keypoints ORB
-    
-    Returns:
-        reranked_indices: indices triés par similarité ORB décroissante
-    """
-
-    # Convertir la requête en niveaux de gris
-    query_gray = cv2.cvtColor(query_img, cv2.COLOR_RGB2GRAY)
-
-    # Initialiser ORB et le matcher Hamming
-    orb = cv2.ORB_create(nfeatures=max_features)
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-
-    # Calculer les keypoints et descripteurs de la requête
-    kp1, des1 = orb.detectAndCompute(query_gray, None)
-    if des1 is None:
-        print("⚠️ Aucun descripteur trouvé pour l'image requête.")
-        return indices  # retourne le classement FAISS par défaut
-
-    scores = []
-
-    for cand, idx, dist in zip(candidate_imgs, indices, distances):
-        cand_gray = cv2.cvtColor(cand, cv2.COLOR_RGB2GRAY)
-
-        # Détecter keypoints et descripteurs pour la candidate
-        kp2, des2 = orb.detectAndCompute(cand_gray, None)
-        if des2 is None:
-            scores.append((idx, 0))
-            continue
-
-        # Matcher les descripteurs
-        matches = bf.match(des1, des2)
-        if not matches:
-            scores.append((idx, 0))
-            continue
-
-        # Calculer un score basé sur la qualité des matches
-        matches = sorted(matches, key=lambda x: x.distance)
-        good_matches = [m for m in matches if m.distance < 60]  # seuil empirique
-        score = len(good_matches) / len(matches)  # ratio de bons matches
-        scores.append((idx, score))
-
-    # Trier par score décroissant
-    scores = sorted(scores, key=lambda x: x[1], reverse=True)
-    reranked_indices = [idx for idx, _ in scores]
-
-    return reranked_indices
 
 
 def compute_phash(img):
     pil_img = Image.fromarray(img).convert("RGB")
-    return imagehash.phash(pil_img)
+    return imagehash.phash(pil_img,hash_size=30)
 
-def rerank_hash(query_img, candidate_imgs, indices, distances):
+def rerank_hash(query_img, candidates, indices):
     """
     Rerank FAISS results using perceptual hash similarity (pHash).
     """
     query_hash = compute_phash(query_img)
     scores = []
 
-    for cand, idx, dist in zip(candidate_imgs, indices, distances):
-        cand_hash = compute_phash(cand)
+    for cand, idx in zip(candidates, indices):
+        cand_hash = imagehash.hex_to_hash(cand["phash"])
         # Distance de Hamming (0 = identique)
         hamming_dist = query_hash - cand_hash
         # Score inverse (plus haut = plus similaire)
@@ -269,4 +227,5 @@ def rerank_hash(query_img, candidate_imgs, indices, distances):
 
     scores = sorted(scores, key=lambda x: x[1], reverse=True)
     reranked_indices = [idx for idx, _ in scores]
-    return reranked_indices
+    return scores
+

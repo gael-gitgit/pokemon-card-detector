@@ -6,7 +6,12 @@ from ultralytics import YOLO
 import functions
 import time
 import requests
-import imagehash
+
+import time
+
+from io import BytesIO
+
+
 
 
 st.set_page_config(page_title="Trouve la Poké-pétite", layout="wide")
@@ -30,11 +35,13 @@ st.title("🎴 Pokemon Card Detector")
 def load_models():
     collection, meta = functions.load_faiss_index()
     embedding_model, preprocess, device = functions.load_embbedings_model()
-    yolo_model = 'models/my-modelv6.pt'
+    yolo_model = 'models/my-modelv10.pt'
     model = YOLO(yolo_model)
     return model, collection, meta, embedding_model, preprocess, device
 
 model, collection, meta, embedding_model, preprocess, device = load_models()
+
+print(collection)
 
 # Inputs
 img_file_buffer = st.camera_input("📸 Prends une photo ou sélectionne-en une", key="camera_input")
@@ -62,11 +69,12 @@ if image is not None:
     st.session_state.detected_cards = []
     st.session_state.process_step = "inprogress"  
     img = np.array(image, dtype=np.uint8)
-    #img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) => fonctionne moins bien si je le laisse, vérifications à faire sur les types
-    results = model.predict(source=img, conf=0.8, device='cpu')
+    #img = functions.improve_img(img)
+    start = time.time()
+    results = model.predict(source=img, conf=0.6, device='gpu')
+    print("yolo img processed in : ",(time.time() - start) * 1e3, "ms")
     session = requests.Session()
-    #img = cv2.fastNlMeansDenoisingColored(img, None, 7, 7, 7, 21)
-    #Check si on a des 
+
     if 1 > 2 :
         st.warning("Aucun objet détecté.")
     else:
@@ -84,66 +92,114 @@ if image is not None:
                     x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
                     crop_pre = segmented[y1:y2, x1:x2]
 
+                    start = time.time()
                     crop = functions.preprocess_img(crop_pre)
+                    print("yolo imgpreprocess in : ",(time.time() - start) * 1e3, "ms")
+                    start = time.time()
                     crop = functions.improve_img(crop)
+                    print("yolo img improved in : ",(time.time() - start) * 1e3, "ms")
+                    start = time.time()
 
+
+                    candidate_order_ids = [int(card["order"]) for card in meta]
+
+                    #recherche FAISS
                     distances,indices = functions.search_card_correspondance(
-                        collection, crop, embedding_model, preprocess, device
+                        collection, crop, embedding_model, preprocess, device , 200, candidate_order_ids
                     )
 
-
+                    print("search card correspondance : ",(time.time() - start) * 1e3, "ms")
+                    start = time.time()
                     #get metadata
                     search_results = []
-                    for idx in indices:
+                    for i,idx in enumerate(indices):
                         search_results.append(meta[idx])
-                    
-                    #download imates
-                    
-                    candidate_imgs = []
-                    for result in search_results:
-                        pil_img = functions.get_image_from_url(session,result['img'])
-                        candidate_imgs.append(np.array(pil_img, dtype=np.uint8))
+                        search_results[i]['distance_faiss'] = float(distances[i])
 
-                    #rerank based on ssim
-                    reranked_indices = functions.rerank_hash(crop, candidate_imgs, indices, distances)
+                    # on supprimer du tableau les éléents dont la distance est trop différente de la première (quand on a winner)
+                    search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                    first_distance = search_results[0]['distance_faiss']
+                    if search_results[1]['distance_faiss'] - search_results[0]['distance_faiss'] > 0.10:
+                        search_results = [search_results[0]]
 
+                    print("Garder le premier élément quand nécéssaire: ",(time.time() - start) * 1e3, "ms")
+                    start = time.time()
+
+
+                    # Si pas assez de différence, on rerank avec le hash et on cherche la 
+                    reranked_indices = functions.rerank_hash(crop, search_results, indices)
                     search_results = []
-                    for idx in reranked_indices:
+                    for idx,score in reranked_indices:
+                        meta[idx]['distance_phash'] = score
                         search_results.append(meta[idx])
 
+                    #On selectionne les 10 premiers
+                    search_results = search_results[0:5]
 
-                    #img_reference = functions.get_image_from_url(search_results['img'])
+                    print("rerank hash: ",(time.time() - start) * 1e3, "ms")
+                    start = time.time()
+
+                    # On rerank les 10 finalist via la distance faiss
+                    temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                    corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.10]
+                    search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+                    
+                    # On recherche encore une cassure mais sur le phash
+                    temp_search_results = sorted(search_results, key=lambda x: x["distance_phash"], reverse=True)
+                    corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_phash'] - temp_search_results[idx+1]['distance_phash']) >= 0.0005]
+                    search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+
+                    # On rerank les 10 finalist via la distance faiss
+                    temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                    corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.10]
+                    search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+
+                    print("réorganisations : ",(time.time() - start) * 1e3, "ms")
+                    start = time.time()
 
                     
                     # --- Ajouter carte à session_state ---
                     card_data = {
-                        "crop": crop,
+                        "crop": crop_pre,
                         "reference": search_results[0]['img'],
                         "name": search_results[0]['name'],
                         "price": search_results[0]['price_eur'],
                         "tcgplayer": search_results[0]['tcgplayer_link'],
                         "cardmarket": search_results[0]['cardmarket_link'],
-                        "history": search_results[0]['price_evolution_url']
+                        "history": search_results[0]['price_evolution_url'],
+                        "distance_faiss": search_results[0]['distance_faiss'],
+                        "distance_phash": search_results[0]['distance_phash']
+
                     }
+                    print(f"le premier pokemon était  : {search_results[0]['name']}")
                     st.session_state.detected_cards.append(card_data)
 
-                    # --- Affichage immédiat dans le container ---
                     with collection_container:
-                        st.markdown(f"### {card_data['name']} — 💰 <span style='color:red;'>{card_data['price']} €</span>", unsafe_allow_html=True)
-                        col1, col2,col3,col4,col5,col6,col7,col8 = st.columns(8)
-                        #col1, col2= st.columns(2)
-                        col1.image(crop, caption="Crop", width="stretch")
-                        col2.image(search_results[0]['img'], caption=str(search_results[0]['price_eur']) + " EUR", width="stretch")
-                        col3.image(search_results[1]['img'], caption=str(search_results[1]['price_eur']) + " EUR", width="stretch")
-                        col4.image(search_results[2]['img'], caption=str(search_results[2]['price_eur']) + " EUR", width="stretch")
-                        col5.image(search_results[3]['img'], caption=str(search_results[3]['price_eur']) + " EUR", width="stretch")
-                        col6.image(search_results[4]['img'], caption=str(search_results[4]['price_eur']) + " EUR", width="stretch")
-                        #col7.image(search_results[5]['img'], caption=str(search_results[5]['price_eur']) + " EUR", width="stretch")
-                        #col8.image(search_results[6]['img'], caption=str(search_results[6]['price_eur']) + " EUR", width="stretch")
+                        st.markdown(
+                            f"### {card_data['name']} — 💰 <span style='color:red;'>{card_data['price']} €</span>", 
+                            unsafe_allow_html=True
+                        )
+                        
+                        # Crée jusqu'à 11 colonnes
+                        max_cols = 12
+                        cols = st.columns(max_cols)
+                        
+                        # Affiche l'image "Crop" dans la première colonne
+                        cols[0].image(crop, caption="Crop", width='stretch')
+                        
+                        # Parcours des résultats de recherche existants
+                        for i, result in enumerate(search_results):
+                            if i + 1 >= max_cols:
+                                break  # Évite d'aller au-delà du nombre de colonnes
+                            caption = f"{result['price_eur']} EUR - {result['distance_faiss']} - {result['distance_phash']}"
+                            cols[i + 1].image(result['img'], caption=caption, width='stretch')
+                        
                         st.markdown(f"""
-                        **Liens :** [TCGPlayer]({card_data['tcgplayer']}) | [CardMarket]({card_data['cardmarket']}) | [Historique prix]({card_data['history']})
+                        **Liens :** [TCGPlayer]({card_data['tcgplayer']}) | 
+                        [CardMarket]({card_data['cardmarket']}) | 
+                        [Historique prix]({card_data['history']})
                         """)
-    st.session_state.process_step = "end"                
+                        st.session_state.process_step = "end"                
 
 
 # --- Valeur totale ---
