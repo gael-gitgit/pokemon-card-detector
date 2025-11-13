@@ -71,7 +71,7 @@ if image is not None:
     img = np.array(image, dtype=np.uint8)
     #img = functions.improve_img(img)
     start = time.time()
-    results = model.predict(source=img, conf=0.6, device='gpu')
+    results = model.predict(source=img, conf=0.6, device='cpu')
     print("yolo img processed in : ",(time.time() - start) * 1e3, "ms")
     session = requests.Session()
 
