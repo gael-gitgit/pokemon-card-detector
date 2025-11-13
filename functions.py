@@ -25,7 +25,6 @@ def get_image_from_url(session,url):
     return img
 
 
-
 def improve_img(img):
 
 
