@@ -134,7 +134,7 @@ if image is not None:
                         search_results.append(meta[idx])
 
                     #On selectionne les 10 premiers
-                    search_results = search_results[0:10]
+                    search_results = search_results[0:5]
 
                     print("rerank hash: ",(time.time() - start) * 1e3, "ms")
                     start = time.time()
