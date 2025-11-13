@@ -91,7 +91,7 @@ def preprocess_img(img):
     else:
         rect = cv2.minAreaRect(c)
         box = cv2.boxPoints(rect)
-        pts = np.int0(box)
+        pts = np.intp(box)
 
     # Réordonne les points
     s = pts.sum(axis=1)
