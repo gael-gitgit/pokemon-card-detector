@@ -48,21 +48,24 @@ img_file_buffer = st.camera_input("📸 Prends une photo ou sélectionne-en une"
 uploaded_file = st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
 
 st.session_state.process_step = "start"
+# Container pour affichage progressif
+collection_container = st.container()
 
 image = None
 if img_file_buffer:
     image = Image.open(img_file_buffer).convert("RGB")
+    st.session_state.detected_cards = []
 
 elif uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
+    st.session_state.detected_cards = []
 
 # Session state pour collection
 if "detected_cards" not in st.session_state:
     st.session_state.detected_cards = []
     
 
-# Container pour affichage progressif
-collection_container = st.container()
+
 
 # --- Traitement de l'image ---
 if image is not None:
@@ -88,16 +91,16 @@ if image is not None:
                     if mask.shape != img.shape[:2]:
                         mask = cv2.resize(mask, (img.shape[1], img.shape[0]))
 
-                    segmented = cv2.bitwise_and(img, img, mask=mask)
+                    crop = cv2.bitwise_and(img, img, mask=mask)
                     x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
-                    crop_pre = segmented[y1:y2, x1:x2]
+                    crop = crop[y1:y2, x1:x2]
 
                     start = time.time()
-                    crop = functions.preprocess_img(crop_pre)
-                    print("yolo imgpreprocess in : ",(time.time() - start) * 1e3, "ms")
+                    crop = functions.preprocess_img(crop)
+                    print(" imgpreprocess in : ",(time.time() - start) * 1e3, "ms")
                     start = time.time()
                     crop = functions.improve_img(crop)
-                    print("yolo img improved in : ",(time.time() - start) * 1e3, "ms")
+                    print(" img improved in : ",(time.time() - start) * 1e3, "ms")
                     start = time.time()
 
 
@@ -160,7 +163,7 @@ if image is not None:
                     
                     # --- Ajouter carte à session_state ---
                     card_data = {
-                        "crop": crop_pre,
+                        "crop": crop,
                         "reference": search_results[0]['img'],
                         "name": search_results[0]['name'],
                         "price": search_results[0]['price_eur'],

@@ -106,10 +106,10 @@ def preprocess_img(img):
     dst = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype="float32")
 
     M = cv2.getPerspectiveTransform(rect, dst)
-    warp = cv2.warpPerspective(img, M, (w, h))
+    img = cv2.warpPerspective(img, M, (w, h))
 
 
-    return warp
+    return img
 
 
 def load_faiss_index():
@@ -131,7 +131,7 @@ def load_embbedings_model(model_name="facebook/dinov2-base"):
 
     # Chargement du processeur et du modèle
     processor = AutoImageProcessor.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name).to(device)
+    model = AutoModel.from_pretrained(model_name , low_cpu_mem_usage=True).to(device)
     model.eval()
 
     return model, processor, device
