@@ -9,6 +9,11 @@ import pickle
 from io import BytesIO
 from transformers import AutoModel, AutoImageProcessor
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from transformers import Dinov2Model
+
 import faiss
 import json
 import time
@@ -16,6 +21,10 @@ import time
 import imagehash
 
 import cv2
+
+
+from transformers import Dinov2Model
+from torchvision import transforms
 
 def get_image_from_url(session,url):
     response = session.get(url)
@@ -101,8 +110,8 @@ def preprocess_img(img):
     rect[1] = pts[np.argmin(diff)]
     rect[3] = pts[np.argmax(diff)]
 
-    (w, h) = (460, 640)
-    #(w, h) = (230, 320)
+    #(w, h) = (460, 640)
+    (w, h) = (230, 320)
     dst = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype="float32")
 
     M = cv2.getPerspectiveTransform(rect, dst)
@@ -114,7 +123,7 @@ def preprocess_img(img):
 
 def load_faiss_index():
     # Load your FAISS index
-    collection = faiss.read_index("./faiss_db/pokemon-cards.index")
+    collection = faiss.read_index("./faiss_db/faiss_dino.index")
     #with open("./faiss_db/pokemon-cards_schema-with-hashes.json") as f:
         #meta = json.load(f)
     with open("./faiss_db/test-hash-plus-colorsig.json") as f:
@@ -135,6 +144,28 @@ def load_embbedings_model(model_name="facebook/dinov2-base"):
     model.eval()
 
     return model, processor, device
+
+def load_custom_model(model_path):
+
+    model = Dinov2Model.from_pretrained(model_path, local_files_only=True).to("cpu")
+    transform = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))
+    ])
+
+    device = 'cpu'
+
+    return model,transform,device
+
+def get_embeddings_dino(pil_img,model,transform):
+
+    x = transform(pil_img).unsqueeze(0).to("cpu")
+
+    with torch.no_grad():
+        emb = model(pixel_values=x).last_hidden_state[:, 0]  # CLS token
+
+    return emb.cpu().numpy().astype("float32")
 
 
 def get_embedding(img, model, processor, device):
@@ -166,7 +197,7 @@ def get_embedding(img, model, processor, device):
     return emb
 
 
-def search_card_correspondance(collection, img, embbedings_model, processor, device,k, filter_ids=[]):
+def search_card_correspondance_old(collection, img, embbedings_model, processor, device,k, filter_ids=[]):
     """
     Recherche la correspondance dans un index FAISS à partir d'une image
     """
@@ -188,7 +219,27 @@ def search_card_correspondance(collection, img, embbedings_model, processor, dev
     print("getting search results :  ",(time.time() - start) * 1e3, "ms")
     return distances[0], indices[0]
 
+def search_card_correspondance(collection, img, model, transform,k, filter_ids=[]):
+    """
+    Recherche la correspondance dans un index FAISS à partir d'une image
+    """
+    
+    start = time.time()              
+    query_emb = get_embeddings_dino(img,model,transform)
+    query_emb = np.vstack(query_emb).astype("float32")
+    print("getting emmbeddings :  ",(time.time() - start) * 1e3, "ms")
+    start = time.time() 
 
+    #recherche de la correspondance sur un subset
+    filter_ids = np.array(filter_ids, dtype=np.int64)
+    id_selector = faiss.IDSelectorArray(len(filter_ids), faiss.swig_ptr(filter_ids))
+    params = faiss.SearchParameters()
+    params.sel = id_selector
+
+    #recherche
+    distances, indices = collection.search(query_emb, k=k, params=params)
+    print("getting search results :  ",(time.time() - start) * 1e3, "ms")
+    return distances[0], indices[0]
 
 
 def get_phash(img):

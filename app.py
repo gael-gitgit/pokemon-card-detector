@@ -34,8 +34,8 @@ st.title("🎴 Pokemon Card Detector")
 @st.cache_resource(show_spinner=False)
 def load_models():
     collection, meta = functions.load_faiss_index()
-    embedding_model, preprocess, device = functions.load_embbedings_model()
-    yolo_model = 'models/my-modelv10.pt'
+    embedding_model, preprocess, device = functions.load_custom_model("models/dino_small_lora_merged")
+    yolo_model = 'models/my-model12.pt'
     model = YOLO(yolo_model)
     return model, collection, meta, embedding_model, preprocess, device
 
@@ -106,9 +106,12 @@ if image is not None:
 
                     candidate_order_ids = [int(card["order"]) for card in meta]
 
+                    #crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                    crop_pil = Image.fromarray(crop)
+
                     #recherche FAISS
                     distances,indices = functions.search_card_correspondance(
-                        collection, crop, embedding_model, preprocess, device , 200, candidate_order_ids
+                        collection, crop_pil, embedding_model, preprocess , 10, candidate_order_ids
                     )
 
                     print("search card correspondance : ",(time.time() - start) * 1e3, "ms")
@@ -119,47 +122,75 @@ if image is not None:
                         search_results.append(meta[idx])
                         search_results[i]['distance_faiss'] = float(distances[i])
 
-                    # on supprimer du tableau les éléents dont la distance est trop différente de la première (quand on a winner)
+
+                    #Un gap est anormal si il est au moins N fois plus grand que la moyenne des 2–3 gaps suivants.
                     search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                    first_distance = search_results[0]['distance_faiss']
-                    if search_results[1]['distance_faiss'] - search_results[0]['distance_faiss'] > 0.10:
-                        search_results = [search_results[0]]
+                    gaps = [search_results[i+1]['distance_faiss'] - search_results[i]['distance_faiss'] for i in range(len(search_results)-1)]
+                    #Pour chaque on regarde les deux suivants
+                    for j in range(len(gaps)-1):
+                        # On regarde les 2 gaps suivants (si disponibles)
+                        next_gaps = gaps[j+1:j+3]
+                        if not next_gaps:
+                            continue
 
-                    print("Garder le premier élément quand nécéssaire: ",(time.time() - start) * 1e3, "ms")
-                    start = time.time()
+                        mean_next = sum(next_gaps) / len(next_gaps)
 
+                        # Gap anormal si il est >> des gaps suivants
+                        if gaps[j] > 3 * mean_next:
+                            search_results = search_results[0:j+1]
+                            break
 
-                    # Si pas assez de différence, on rerank avec le hash et on cherche la 
+                    #On rerank avec phash
                     reranked_indices = functions.rerank_hash(crop, search_results, indices)
                     search_results = []
                     for idx,score in reranked_indices:
                         meta[idx]['distance_phash'] = score
                         search_results.append(meta[idx])
 
-                    #On selectionne les 10 premiers
-                    search_results = search_results[0:5]
-
-                    print("rerank hash: ",(time.time() - start) * 1e3, "ms")
-                    start = time.time()
-
-                    # On rerank les 10 finalist via la distance faiss
-                    temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                    corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.10]
-                    search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+                    if False : 
                     
-                    # On recherche encore une cassure mais sur le phash
-                    temp_search_results = sorted(search_results, key=lambda x: x["distance_phash"], reverse=True)
-                    corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_phash'] - temp_search_results[idx+1]['distance_phash']) >= 0.0005]
-                    search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+                    
+                        # on supprime du tableau les éléents dont la distance est trop différente de la première (quand on a winner)
+                        search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                        first_distance = search_results[0]['distance_faiss']
+                        if search_results[1]['distance_faiss'] - search_results[0]['distance_faiss'] > 0.10:
+                            search_results = [search_results[0]]
 
-                    # On rerank les 10 finalist via la distance faiss
-                    temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                    corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.10]
-                    search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+                        print("Garder le premier élément quand nécéssaire: ",(time.time() - start) * 1e3, "ms")
+                        start = time.time()
+                        
+                        
+                        # Si pas assez de différence, on rerank avec le hash et on cherche la 
+                        reranked_indices = functions.rerank_hash(crop, search_results, indices)
+                        search_results = []
+                        for idx,score in reranked_indices:
+                            meta[idx]['distance_phash'] = score
+                            search_results.append(meta[idx])
+
+                        #On selectionne les 10 premiers
+                        search_results = search_results[0:5]
+
+                        print("rerank hash: ",(time.time() - start) * 1e3, "ms")
+                        start = time.time()
+
+                        # On rerank les 10 finalist via la distance faiss
+                        temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                        corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.10]
+                        search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+                        
+                        # On recherche encore une cassure mais sur le phash
+                        temp_search_results = sorted(search_results, key=lambda x: x["distance_phash"], reverse=True)
+                        corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_phash'] - temp_search_results[idx+1]['distance_phash']) >= 0.0005]
+                        search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
+
+                        # On rerank les 10 finalist via la distance faiss
+                        temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                        corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.05]
+                        search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
 
                     print("réorganisations : ",(time.time() - start) * 1e3, "ms")
                     start = time.time()
-
+                    
                     
                     # --- Ajouter carte à session_state ---
                     card_data = {
@@ -171,7 +202,7 @@ if image is not None:
                         "cardmarket": search_results[0]['cardmarket_link'],
                         "history": search_results[0]['price_evolution_url'],
                         "distance_faiss": search_results[0]['distance_faiss'],
-                        "distance_phash": search_results[0]['distance_phash']
+                        "distance_phash": 0#search_results[0]['distance_phash']
 
                     }
                     print(f"le premier pokemon était  : {search_results[0]['name']}")
@@ -194,7 +225,7 @@ if image is not None:
                         for i, result in enumerate(search_results):
                             if i + 1 >= max_cols:
                                 break  # Évite d'aller au-delà du nombre de colonnes
-                            caption = f"{result['price_eur']} EUR - {result['distance_faiss']} - {result['distance_phash']}"
+                            caption = f"{result['price_eur']} EUR - {result['distance_faiss']} "#- {result['distance_phash']}"
                             cols[i + 1].image(result['img'], caption=caption, width='stretch')
                         
                         st.markdown(f"""
