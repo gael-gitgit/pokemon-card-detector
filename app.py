@@ -50,16 +50,18 @@ def draw_boxes_on_image(image_np, cards):
 st.set_page_config(page_title="Trouve la Poké-pétite", layout="wide")
 
 # Masquer toolbar et footer
-#hide_streamlit_style = """
-#<style>
-#div[data-testid="stToolbar"], div[data-testid="stDecoration"], div[data-testid="stStatusWidget"], #MainMenu, header, footer {
-#    visibility: hidden;
-#    height: 0%;
-#    position: fixed;
-#}
-#</style>
-#"""
-#st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+hide_streamlit_style = """
+<style>
+div[data-testid="stToolbar"], div[data-testid="stDecoration"], div[data-testid="stStatusWidget"], #MainMenu, header, footer {
+    visibility: hidden;
+    height: 0%;
+    position: fixed;
+}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+
 
 st.markdown("## Pokemon scanner")
 
@@ -128,6 +130,12 @@ if image is not None:
 
         if masks is not None:
             for i, m in enumerate(masks.data):
+
+                #si la conf es trop faible on pass
+                conf = float(boxes.conf[i])
+                if conf < 0.6 :
+                    continue
+
                 mask = (m.cpu().numpy() > 0.5).astype(np.uint8) * 255
                 if mask.shape != img.shape[:2]:
                     mask = cv2.resize(mask, (img.shape[1], img.shape[0]))
@@ -261,7 +269,7 @@ if image is not None:
                                 caption = f"{result['price_eur']} EUR "#- {result['distance_faiss']}"
                                 cols[i ].image(result['img'], caption=caption, width="stretch") #mettre i+1 si on affiche aussi le crop
 
-   
+    st.markdown("## Analyse terminée")
 
 # --- Valeur totale de la collection ---
 total_value = sum([c["main_card"]['price'] for c in st.session_state.detected_collections])
