@@ -11,24 +11,57 @@ import time
 
 from io import BytesIO
 
+import base64
+import cv2
 
+import cv2
+import numpy as np
+
+def pil_to_base64(img):
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+def draw_boxes_on_image(image_np, cards):
+    img_annotated = image_np.copy()
+    for card in cards:
+        x1, y1, x2, y2 = card['box']
+        name = card['name']
+        price = card['price']
+
+        # Rectangle rouge
+        cv2.rectangle(img_annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+        # Texte (nom + prix)
+        text = f"{name} - {price:.2f}EUR"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+        text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+        text_w, text_h = text_size
+
+        # Fond noir
+        cv2.rectangle(img_annotated, (x1, y1 - text_h - 5), (x1 + text_w, y1), (0, 0, 0), -1)
+        cv2.putText(img_annotated, text, (x1, y1 - 5), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+    return img_annotated
 
 
 st.set_page_config(page_title="Trouve la Poké-pétite", layout="wide")
 
 # Masquer toolbar et footer
-hide_streamlit_style = """
-<style>
-div[data-testid="stToolbar"], div[data-testid="stDecoration"], div[data-testid="stStatusWidget"], #MainMenu, header, footer {
-    visibility: hidden;
-    height: 0%;
-    position: fixed;
-}
-</style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+#hide_streamlit_style = """
+#<style>
+#div[data-testid="stToolbar"], div[data-testid="stDecoration"], div[data-testid="stStatusWidget"], #MainMenu, header, footer {
+#    visibility: hidden;
+#    height: 0%;
+#    position: fixed;
+#}
+#</style>
+#"""
+#st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-st.title("🎴 Pokemon Card Detector")
+st.markdown("## Pokemon scanner")
 
 # Charger modèles
 @st.cache_resource(show_spinner=False)
@@ -43,210 +76,197 @@ model, collection, meta, embedding_model, preprocess, device = load_models()
 
 print(collection)
 
+image = None
+
 # Inputs
 img_file_buffer = st.camera_input("📸 Prends une photo ou sélectionne-en une", key="camera_input")
-uploaded_file = st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
+uploaded_file = None #st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
 
-st.session_state.process_step = "start"
-# Container pour affichage progressif
-collection_container = st.container()
-
-image = None
+# Nouvelle image sélectionnée
 if img_file_buffer:
     image = Image.open(img_file_buffer).convert("RGB")
+    # Réinitialiser les états
     st.session_state.detected_cards = []
+    st.session_state.detected_collections = []
 
 elif uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
+    # Réinitialiser les états
     st.session_state.detected_cards = []
+    st.session_state.detected_collections = []
+
+# Container pour affichage progressif
+
+# --- Initialisation session_state pour collections ---
+if "detected_collections" not in st.session_state:
+    st.session_state.detected_collections = []
+
 
 # Session state pour collection
 if "detected_cards" not in st.session_state:
     st.session_state.detected_cards = []
-    
+
+# --- Affichage de l'image principale ---
+#image_placeholder = st.empty()  # Placeholder pour l'image source annotée
 
 
+# Placeholder unique pour toutes les collections
+collections_placeholder = st.empty()
+
+# --- Initialisation session_state pour collections ---
+if "detected_collections" not in st.session_state:
+    st.session_state.detected_collections = []
 
 # --- Traitement de l'image ---
 if image is not None:
-    st.session_state.detected_cards = []
-    st.session_state.process_step = "inprogress"  
     img = np.array(image, dtype=np.uint8)
-    #img = functions.improve_img(img)
-    start = time.time()
     results = model.predict(source=img, conf=0.6, device='cpu')
-    print("yolo img processed in : ",(time.time() - start) * 1e3, "ms")
-    session = requests.Session()
 
-    if 1 > 2 :
-        st.warning("Aucun objet détecté.")
-    else:
-        for r in results:
-            masks = r.masks
-            boxes = r.boxes
+    for r in results:
+        masks = r.masks
+        boxes = r.boxes
 
-            if masks is not None:
-                for i, m in enumerate(masks.data):
-                    mask = (m.cpu().numpy() > 0.5).astype(np.uint8) * 255
-                    if mask.shape != img.shape[:2]:
-                        mask = cv2.resize(mask, (img.shape[1], img.shape[0]))
+        if masks is not None:
+            for i, m in enumerate(masks.data):
+                mask = (m.cpu().numpy() > 0.5).astype(np.uint8) * 255
+                if mask.shape != img.shape[:2]:
+                    mask = cv2.resize(mask, (img.shape[1], img.shape[0]))
 
-                    crop = cv2.bitwise_and(img, img, mask=mask)
-                    x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
-                    crop = crop[y1:y2, x1:x2]
+                crop = cv2.bitwise_and(img, img, mask=mask)
+                x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
+                crop = crop[y1:y2, x1:x2]
 
-                    start = time.time()
-                    crop = functions.preprocess_img(crop)
-                    print(" imgpreprocess in : ",(time.time() - start) * 1e3, "ms")
-                    start = time.time()
-                    crop = functions.improve_img(crop)
-                    print(" img improved in : ",(time.time() - start) * 1e3, "ms")
-                    start = time.time()
+                crop = functions.preprocess_img(crop)
+                crop = functions.improve_img(crop)
+                crop_pil = Image.fromarray(crop)
 
+                candidate_order_ids = [int(card["order"]) for card in meta]
+                distances, indices = functions.search_card_correspondance(
+                    collection, crop_pil, embedding_model, preprocess , 10, candidate_order_ids
+                )
 
-                    candidate_order_ids = [int(card["order"]) for card in meta]
+                search_results = []
+                for i, idx in enumerate(indices):
+                    search_results.append(meta[idx])
+                    search_results[i]['distance_faiss'] = float(distances[i])
 
-                    #crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-                    crop_pil = Image.fromarray(crop)
+                #Un gap est anormal si il est au moins N fois plus grand que la moyenne des 2–3 gaps suivants.
+                search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
+                gaps = [search_results[i+1]['distance_faiss'] - search_results[i]['distance_faiss'] for i in range(len(search_results)-1)]
+                #Pour chaque on regarde les deux suivants
+                for j in range(len(gaps)-1):
+                    # On regarde les 2 gaps suivants (si disponibles)
+                    next_gaps = gaps[j+1:j+3]
+                    if not next_gaps:
+                        continue
 
-                    #recherche FAISS
-                    distances,indices = functions.search_card_correspondance(
-                        collection, crop_pil, embedding_model, preprocess , 10, candidate_order_ids
-                    )
+                    mean_next = sum(next_gaps) / len(next_gaps)
 
-                    print("search card correspondance : ",(time.time() - start) * 1e3, "ms")
-                    start = time.time()
-                    #get metadata
-                    search_results = []
-                    for i,idx in enumerate(indices):
-                        search_results.append(meta[idx])
-                        search_results[i]['distance_faiss'] = float(distances[i])
-
-
-                    #Un gap est anormal si il est au moins N fois plus grand que la moyenne des 2–3 gaps suivants.
-                    search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                    gaps = [search_results[i+1]['distance_faiss'] - search_results[i]['distance_faiss'] for i in range(len(search_results)-1)]
-                    #Pour chaque on regarde les deux suivants
-                    for j in range(len(gaps)-1):
-                        # On regarde les 2 gaps suivants (si disponibles)
-                        next_gaps = gaps[j+1:j+3]
-                        if not next_gaps:
-                            continue
-
-                        mean_next = sum(next_gaps) / len(next_gaps)
-
-                        # Gap anormal si il est >> des gaps suivants
-                        if gaps[j] > 3 * mean_next:
-                            search_results = search_results[0:j+1]
-                            break
-
-                    #On rerank avec phash
-                    reranked_indices = functions.rerank_hash(crop, search_results, indices)
-                    search_results = []
-                    for idx,score in reranked_indices:
-                        meta[idx]['distance_phash'] = score
-                        search_results.append(meta[idx])
-
-                    if False : 
-                    
-                    
-                        # on supprime du tableau les éléents dont la distance est trop différente de la première (quand on a winner)
-                        search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                        first_distance = search_results[0]['distance_faiss']
-                        if search_results[1]['distance_faiss'] - search_results[0]['distance_faiss'] > 0.10:
-                            search_results = [search_results[0]]
-
-                        print("Garder le premier élément quand nécéssaire: ",(time.time() - start) * 1e3, "ms")
-                        start = time.time()
-                        
-                        
-                        # Si pas assez de différence, on rerank avec le hash et on cherche la 
-                        reranked_indices = functions.rerank_hash(crop, search_results, indices)
-                        search_results = []
-                        for idx,score in reranked_indices:
-                            meta[idx]['distance_phash'] = score
-                            search_results.append(meta[idx])
-
-                        #On selectionne les 10 premiers
-                        search_results = search_results[0:5]
-
-                        print("rerank hash: ",(time.time() - start) * 1e3, "ms")
-                        start = time.time()
-
-                        # On rerank les 10 finalist via la distance faiss
-                        temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                        corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.10]
-                        search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
-                        
-                        # On recherche encore une cassure mais sur le phash
-                        temp_search_results = sorted(search_results, key=lambda x: x["distance_phash"], reverse=True)
-                        corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_phash'] - temp_search_results[idx+1]['distance_phash']) >= 0.0005]
-                        search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
-
-                        # On rerank les 10 finalist via la distance faiss
-                        temp_search_results = sorted(search_results, key=lambda x: x["distance_faiss"], reverse=False)
-                        corresp = [idx  for idx in range(0,len(temp_search_results)-1) if abs(temp_search_results[idx]['distance_faiss'] - temp_search_results[idx+1]['distance_faiss']) >= 0.05]
-                        search_results = temp_search_results[0:max(corresp)+1] if len(corresp)>0 else search_results
-
-                    print("réorganisations : ",(time.time() - start) * 1e3, "ms")
-                    start = time.time()
-                    
-                    
-                    # --- Ajouter carte à session_state ---
-                    card_data = {
-                        "crop": crop,
-                        "reference": search_results[0]['img'],
-                        "name": search_results[0]['name'],
-                        "price": search_results[0]['price_eur'],
-                        "tcgplayer": search_results[0]['tcgplayer_link'],
-                        "cardmarket": search_results[0]['cardmarket_link'],
-                        "history": search_results[0]['price_evolution_url'],
-                        "distance_faiss": search_results[0]['distance_faiss'],
-                        "distance_phash": 0#search_results[0]['distance_phash']
-
-                    }
-                    print(f"le premier pokemon était  : {search_results[0]['name']}")
-                    st.session_state.detected_cards.append(card_data)
-
-                    with collection_container:
-                        st.markdown(
-                            f"### {card_data['name']} — 💰 <span style='color:red;'>{card_data['price']} €</span>", 
-                            unsafe_allow_html=True
-                        )
-                        
-                        # Crée jusqu'à 11 colonnes
-                        max_cols = 12
-                        cols = st.columns(max_cols)
-                        
-                        # Affiche l'image "Crop" dans la première colonne
-                        cols[0].image(crop, caption="Crop", width='stretch')
-                        
-                        # Parcours des résultats de recherche existants
-                        for i, result in enumerate(search_results):
-                            if i + 1 >= max_cols:
-                                break  # Évite d'aller au-delà du nombre de colonnes
-                            caption = f"{result['price_eur']} EUR - {result['distance_faiss']} "#- {result['distance_phash']}"
-                            cols[i + 1].image(result['img'], caption=caption, width='stretch')
-                        
-                        st.markdown(f"""
-                        **Liens :** [TCGPlayer]({card_data['tcgplayer']}) | 
-                        [CardMarket]({card_data['cardmarket']}) | 
-                        [Historique prix]({card_data['history']})
-                        """)
-                        st.session_state.process_step = "end"                
+                    # Gap anormal si il est >> des gaps suivants
+                    if gaps[j] > 3 * mean_next:
+                        search_results = search_results[0:j+1]
+                        break
 
 
-# --- Valeur totale ---
-if st.session_state.detected_cards:
-    total_value = sum([c['price'] for c in st.session_state.detected_cards])
-    st.markdown(f"## 💰 Valeur totale de la collection : {total_value:.2f} €")
+                # Reranking
+                search_results = sorted(search_results, key=lambda x: x["distance_faiss"])
+                reranked_indices = functions.rerank_hash(crop, search_results, indices)
+                search_results = []
+                for idx, score in reranked_indices:
+                    meta[idx]['distance_phash'] = score
+                    search_results.append(meta[idx])
 
-# --- Valeur totale ---
-if st.session_state.process_step  == "start":
-    st.info("Analyse à lancer")
-elif st.session_state.process_step  == "inprogress":
-    st.info("Amélioration de la qualité des images (oui c'est long...)")
-elif st.session_state.process_step  == "end" and len(st.session_state.detected_cards) ==0:
-    st.warning("Analyse terminée - Aucun objet détecté")
-elif st.session_state.process_step  == "end":
-    st.success("Analyse terminée")
+
+
+                # --- Créer la collection ---
+                card_data = {
+                    "crop": crop,
+                    "box": (x1, y1, x2, y2), 
+                    "reference": search_results[0]['img'],
+                    "set" : search_results[0]['set'],
+                    "number" : search_results[0]['number'],
+                    "name": search_results[0]['name'],
+                    "price": 0 if search_results[0]['price_eur'] ==None else search_results[0]['price_eur'],
+                    "tcgplayer": search_results[0]['tcgplayer_link'],
+                    "cardmarket": search_results[0]['cardmarket_link'],
+                    "history": search_results[0]['price_evolution_url'],
+                    "distance_faiss": search_results[0]['distance_faiss'],
+                    "img": search_results[0]['img'],
+                    "distance_phash": 0
+                }
+
+                st.session_state.detected_collections.append({
+                    "main_card": card_data,
+                    "search_results": search_results
+                })
+
+                # --- Trier toutes les collections par prix décroissant ---
+                st.session_state.detected_collections.sort(
+                    key=lambda c: c["main_card"]["price"], reverse=True
+                )
+
+                # --- Affichage dynamique ---
+                # Image annotée avec toutes les cartes détectées
+                img_annotated = draw_boxes_on_image(np.array(image), 
+                                                    [c["main_card"] for c in st.session_state.detected_collections])
+                #image_placeholder.image(img_annotated, use_container_width=True)
+
+                # Mettre à jour l'affichage dans le placeholder
+                with collections_placeholder.container():
+                    for c in st.session_state.detected_collections:
+                        card_data = c["main_card"]
+                        search_results = c["search_results"]
+
+
+                        #img_b64 = pil_to_base64(card_data["crop"])
+                        modal_id = f"modal_img_{i}"  # ID unique pour chaque carte
+
+                        md = f"""
+                        <table style="margin-bottom:12px; border-radius:8px; padding:6px; width:100%;">
+                            <tr>
+                                <td style="width:130px;">
+                                    <img src="{card_data['img']}" width=150% style="border-radius:4px;"/>
+                                </td>
+                                <td style="vertical-align:top; padding-left:10px;">
+                                    <strong style="font-size:30px;">{card_data['name']}</strong><br/>
+                                    <span style="font-size:16px;">{card_data['set']}/{card_data['number']} </span><br/>
+                                    <span style="color:#e63946;font-size:20px; font-weight:bold;">💰 {card_data['price']} EUR</span><br/>
+                                    <span style="font-size:14px;">
+                                        <a href="{card_data['tcgplayer']}" target="_blank">TCGPlayer</a> | 
+                                        <a href="{card_data['cardmarket']}" target="_blank">CardMarket</a> | 
+                                        <a href="{card_data['history']}" target="_blank">Historique</a>
+                                    </span>
+                                </td>
+                            </tr>
+                        </table>
+                        """
+
+                        st.markdown(md, unsafe_allow_html=True)
+
+
+
+
+
+
+                        if None:
+
+                            max_cols = 1
+                            cols = st.columns(max_cols )
+
+                            #cols[0].image(card_data['crop'], caption="Crop", width="stretch")
+
+                            for i, result in enumerate(search_results):
+                                if i >= max_cols: #mettre i+1 si on affiche aussi le crop
+                                    break
+                                caption = f"{result['price_eur']} EUR "#- {result['distance_faiss']}"
+                                cols[i ].image(result['img'], caption=caption, width="stretch") #mettre i+1 si on affiche aussi le crop
+
+   
+
+# --- Valeur totale de la collection ---
+total_value = sum([c["main_card"]['price'] for c in st.session_state.detected_collections])
+st.markdown(f"##### 💰 Valeur totale : {total_value:.2f} €")
+
+
+
+
