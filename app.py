@@ -133,8 +133,7 @@ if image is not None:
 
                 #si la conf es trop faible on pass
                 conf = float(boxes.conf[i])
-                if conf < 0.8 or (x2-x1 < 40) or (y2-y1 < 40):
-                    continue
+                
 
                 mask = (m.cpu().numpy() > 0.5).astype(np.uint8) * 255
                 if mask.shape != img.shape[:2]:
@@ -142,6 +141,10 @@ if image is not None:
 
                 crop = cv2.bitwise_and(img, img, mask=mask)
                 x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
+
+                if conf < 0.8 or (x2-x1 < 40) or (y2-y1 < 40):
+                    continue
+
                 crop = crop[y1:y2, x1:x2]
 
                 crop = functions.preprocess_img(crop)
