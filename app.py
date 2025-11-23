@@ -142,7 +142,7 @@ if image is not None:
                 crop = cv2.bitwise_and(img, img, mask=mask)
                 x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
 
-                if conf < 0.8 or (x2-x1 < 40) or (y2-y1 < 40):
+                if (conf < 0.8) or (x2-x1 < 150) or (y2-y1 < 150):
                     continue
 
                 crop = crop[y1:y2, x1:x2]
