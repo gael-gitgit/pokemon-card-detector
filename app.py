@@ -133,7 +133,7 @@ if image is not None:
 
                 #si la conf es trop faible on pass
                 conf = float(boxes.conf[i])
-                if conf < 0.6 :
+                if conf < 0.8 or (x2-x1 < 40) or (y2-y1 < 40):
                     continue
 
                 mask = (m.cpu().numpy() > 0.5).astype(np.uint8) * 255

@@ -110,8 +110,8 @@ def preprocess_img(img):
     rect[1] = pts[np.argmin(diff)]
     rect[3] = pts[np.argmax(diff)]
 
-    #(w, h) = (460, 640)
-    (w, h) = (230, 320)
+    (w, h) = (460, 640)
+    #(w, h) = (230, 320)
     dst = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype="float32")
 
     M = cv2.getPerspectiveTransform(rect, dst)
