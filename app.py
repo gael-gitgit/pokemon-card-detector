@@ -180,12 +180,12 @@ if image is not None:
 
 
                 # Reranking
-                search_results = sorted(search_results, key=lambda x: x["distance_faiss"])
-                reranked_indices = functions.rerank_hash(crop, search_results, indices)
-                search_results = []
-                for idx, score in reranked_indices:
-                    meta[idx]['distance_phash'] = score
-                    search_results.append(meta[idx])
+                #search_results = sorted(search_results, key=lambda x: x["distance_faiss"])
+                #reranked_indices = functions.rerank_hash(crop, search_results, indices)
+                #search_results = []
+                #for idx, score in reranked_indices:
+                #    meta[idx]['distance_phash'] = score
+                #    search_results.append(meta[idx])
 
 
 
