@@ -80,9 +80,9 @@ print(collection)
 
 image = None
 
-# Inputs
+# Inputs test
 img_file_buffer = st.camera_input("📸 Prends une photo ou sélectionne-en une", key="camera_input")
-uploaded_file = None #st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Ou charge une image existante", type=["jpg", "jpeg", "png"])
 
 # Nouvelle image sélectionnée
 if img_file_buffer:
@@ -104,7 +104,7 @@ if "detected_collections" not in st.session_state:
     st.session_state.detected_collections = []
 
 
-# Session state pour collection
+# Session state pour collectiontyty
 if "detected_cards" not in st.session_state:
     st.session_state.detected_cards = []
 
